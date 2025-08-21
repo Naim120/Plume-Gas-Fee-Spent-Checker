@@ -16,4 +16,7 @@ Built with plain **HTML, CSS, and JavaScript**, easy to deploy on **Cloudflare P
 ---
 
 ## 📦 Live at cloudflare
+https://plume-gas-fee-spent-checker.pages.dev
 
+## Follow me on X
+https://x.com/ghostriley68721
