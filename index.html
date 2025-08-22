@@ -185,8 +185,8 @@
     </footer>
   </div>
 
-  <script>
-const API_BASE = "https://plume.skdrive.workers.dev"; // Correct Plume Explorer base
+<script>
+const API_BASE = "https://plume.skdrive.workers.dev";
 
 const el = (id) => document.getElementById(id);
 const runBtn = el('runBtn');
@@ -218,11 +218,6 @@ function formatPLUMEFromWeiStr(weiStr){
   } catch { return '0'; }
 }
 
-function bigIntSum(arr){
-  return arr.reduce((a,b)=> a + BigInt(b), 0n);
-}
-
-// Updated fetchPage: now returns full JSON including next_page_params
 async function fetchPage(address, cursorParams, limit) {
   let url = `${API_BASE}/addresses/${address}/transactions?limit=${limit}`;
   if (cursorParams) {
@@ -285,7 +280,6 @@ runBtn.addEventListener('click', async () => {
   let collected = [];
   let cursor = null;
   let batchCount = 0;
-  let seenInRange = false;
 
   try {
     do {
@@ -301,7 +295,6 @@ runBtn.addEventListener('click', async () => {
         const ts = parseApiTimestamp(tx.timestamp);
         if (isNaN(ts.getTime())) continue;
         if (ts >= start && ts <= end) {
-          seenInRange = true;
           const feeWeiStr = tx.fee?.value ?? (tx.gas_used && tx.gas_price ? (BigInt(tx.gas_used) * BigInt(tx.gas_price)).toString() : '0');
           const feePlume = formatPLUMEFromWeiStr(feeWeiStr);
           const exr = tx.exchange_rate ? Number(tx.exchange_rate) : null;
@@ -320,12 +313,7 @@ runBtn.addEventListener('click', async () => {
         }
       }
 
-      // Early stop if all remaining transactions are outside date range
-      if (!seenInRange && items.length) {
-        const oldestTs = parseApiTimestamp(items[items.length - 1].timestamp);
-        if (oldestTs < start) break;
-      }
-
+      // Move cursor to next page
       cursor = data.next_page_params || null;
     } while (cursor);
 
@@ -386,7 +374,7 @@ runBtn.addEventListener('click', async () => {
     status.className = 'status err';
     status.innerHTML = `✖ Error: ${err.message}. If this is a CORS issue, place this behind a Cloudflare Worker proxy.`;
   }
-});
+})();
 
 // Convenience: prefill address & dates from URL
 (function initFromQuery(){
@@ -399,6 +387,7 @@ runBtn.addEventListener('click', async () => {
   if (end) el('end').value = end;
 })();
 </script>
+
 
 </body>
 </html>
