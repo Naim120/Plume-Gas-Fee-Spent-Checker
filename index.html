@@ -317,9 +317,9 @@
             }
           }
 
-          // Early stop heuristic if API returns newest->oldest
-          const oldest = parseApiTimestamp(items[items.length - 1]?.timestamp);
-          if (!isNaN(oldest?.getTime()) && oldest < start && seenInRange) break;
+          // Early stop if transactions are older than start
+        const oldest = parseApiTimestamp(items[items.length - 1]?.timestamp);
+        if (!isNaN(oldest?.getTime()) && oldest < start) break;
 
           page++;
         }
