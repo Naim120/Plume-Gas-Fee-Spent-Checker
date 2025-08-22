@@ -277,103 +277,72 @@ runBtn.addEventListener('click', async () => {
   status.className = 'status';
   status.innerHTML = '⏳ Fetching transactions…';
 
-  let collected = [];
-  let cursor = null;
-  let batchCount = 0;
+let cursorParams = null;
+let collected = [];
+let seenInRange = false;
 
-  try {
-    do {
-      batchCount++;
-      status.innerHTML = `⏳ Fetching batch ${batchCount}…`;
+try {
+  while (true) {
+    status.innerHTML = `⏳ Fetching page ${collected.length / limit + 1}…`;
+    const data = await fetchPage(address, cursorParams);
+    const items = data.items || [];
+    if (!items.length) break; // no more transactions
 
-      const data = await fetchPage(address, cursor, limit);
-      const items = data.items || [];
-      if (!items.length) break;
+    // Collect valid timestamps for this page
+    const times = items
+      .map(tx => parseApiTimestamp(tx.timestamp))
+      .filter(d => !isNaN(d.getTime()));
 
-      // Filter transactions by date range
-      for (const tx of items) {
-        const ts = parseApiTimestamp(tx.timestamp);
-        if (isNaN(ts.getTime())) continue;
-        if (ts >= start && ts <= end) {
-          const feeWeiStr = tx.fee?.value ?? (tx.gas_used && tx.gas_price ? (BigInt(tx.gas_used) * BigInt(tx.gas_price)).toString() : '0');
-          const feePlume = formatPLUMEFromWeiStr(feeWeiStr);
-          const exr = tx.exchange_rate ? Number(tx.exchange_rate) : null;
-          const feeUsd = exr ? (Number((BigInt(feeWeiStr) / 10n**12n)) / 1e6) * exr : null;
+    if (!times.length) break; // page empty or malformed
 
-          collected.push({
-            time: ts.toISOString().replace('.000Z','Z'),
-            hash: tx.hash,
-            to: tx.to?.hash || '',
-            method: tx.method || '',
-            fee_wei: feeWeiStr,
-            fee_plume: feePlume,
-            exchange_rate: exr,
-            fee_usd_est: feeUsd ? feeUsd.toFixed(6) : undefined,
-          });
-        }
+    const pageMin = new Date(Math.min(...times.map(d => d.getTime())));
+    const pageMax = new Date(Math.max(...times.map(d => d.getTime())));
+    const isDesc = times[0] > times[times.length - 1];
+
+    // Stop fetching if all transactions are outside date range
+    if (isDesc && pageMax < start) break;   // descending, everything older than start
+    if (!isDesc && pageMin > end) break;    // ascending, everything newer than end
+
+    // Per-tx filtering
+    for (const tx of items) {
+      const ts = parseApiTimestamp(tx.timestamp);
+      if (isNaN(ts.getTime())) continue;
+      if (ts >= start && ts <= end) {
+        seenInRange = true;
+        const feeWeiStr = tx.fee && tx.fee.value
+          ? tx.fee.value
+          : ((tx.gas_used && tx.gas_price)
+              ? (BigInt(tx.gas_used) * BigInt(tx.gas_price)).toString()
+              : '0');
+        const feePlume = formatPLUMEFromWeiStr(feeWeiStr);
+        const exr = tx.exchange_rate ? Number(tx.exchange_rate) : null;
+        const feeUsd = exr
+          ? (Number((BigInt(feeWeiStr) / 10n**12n)) / 1e6) * exr
+          : null;
+
+        collected.push({
+          time: ts.toISOString().replace('.000Z','Z'),
+          hash: tx.hash,
+          to: tx.to && tx.to.hash ? tx.to.hash : '',
+          method: tx.method || '',
+          fee_wei: feeWeiStr,
+          fee_plume: feePlume,
+          exchange_rate: exr,
+          fee_usd_est: feeUsd ? feeUsd.toFixed(6) : undefined,
+        });
       }
-
-      // Move cursor to next page
-      cursor = data.next_page_params || null;
-    } while (cursor);
-
-    if (!collected.length) {
-      status.className = 'status';
-      status.innerHTML = 'ℹ️ No transactions found in that date range.';
-      return;
     }
 
-    // Summaries
-    const totalWei = collected.reduce((acc, r) => acc + BigInt(r.fee_wei), 0n);
-    const totalPlume = formatPLUMEFromWeiStr(totalWei.toString());
-    const usdSum = collected.reduce((a,r) => a + (r.exchange_rate ? (Number((BigInt(r.fee_wei) / 10n**12n)) / 1e6) * r.exchange_rate : 0), 0);
-
-    el('weiOut').textContent = totalWei.toString();
-    el('plumeOut').textContent = totalPlume;
-    el('usdOut').textContent = usdSum ? `$${usdSum.toFixed(4)}` : '—';
-    el('countOut').textContent = collected.length.toString();
-    summary.style.display = '';
-
-    // Table rows
-    const frag = document.createDocumentFragment();
-    for (const r of collected) {
-      const tr = document.createElement('tr');
-      const link = `https://explorer.plume.org/tx/${r.hash}`;
-      tr.innerHTML = `
-        <td class="mono">${r.time}</td>
-        <td class="mono"><a class="link" href="${link}" target="_blank" rel="noopener">${r.hash.slice(0,10)}…${r.hash.slice(-6)}</a></td>
-        <td class="mono">${r.to ? `<a class="link" href="https://explorer.plume.org/address/${r.to}" target="_blank" rel="noopener">${r.to.slice(0,10)}…${r.to.slice(-6)}</a>` : ''}</td>
-        <td>${r.method || ''}</td>
-        <td class="mono">${r.fee_plume}</td>
-      `;
-      frag.appendChild(tr);
-    }
-    rowsTbody.appendChild(frag);
-    tableCard.style.display = '';
-
-    // CSV download
-    csvBtn.disabled = false;
-    csvBtn.onclick = () => {
-      const csv = buildCsv(collected);
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `plume-gas-${address}-${startStr}_to_${endStr}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    };
-
-    status.className = 'status ok';
-    status.innerHTML = `✔ Done. Parsed ${collected.length} transactions over ${batchCount} batch(es).`;
-
-  } catch (err) {
-    console.error(err);
-    status.className = 'status err';
-    status.innerHTML = `✖ Error: ${err.message}. If this is a CORS issue, place this behind a Cloudflare Worker proxy.`;
+    // Move to next page using API cursor
+    cursorParams = data.next_page_params || null;
+    if (!cursorParams) break; // no more pages
   }
+} catch (err) {
+  console.error(err);
+  status.className = 'status err';
+  status.innerHTML = `✖ Error: ${err.message}. If this is a CORS issue, place this behind a Cloudflare Worker proxy.`;
+}
+
 })();
 
 // Convenience: prefill address & dates from URL
