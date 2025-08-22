@@ -186,175 +186,151 @@
   </div>
 
 <script>
-const API_BASE = "https://plume.skdrive.workers.dev";
+document.addEventListener('DOMContentLoaded', () => {
+  const API_BASE = "https://plume.skdrive.workers.dev";
 
-const el = (id) => document.getElementById(id);
-const runBtn = el('runBtn');
-const csvBtn = el('csvBtn');
+  const el = (id) => document.getElementById(id);
+  const runBtn = el('runBtn');
+  const csvBtn = el('csvBtn');
 
-function isValidAddress(addr) {
-  return /^0x[a-fA-F0-9]{40}$/.test(addr);
-}
-
-function toUTCStart(dateStr){
-  return new Date(dateStr + 'T00:00:00.000Z');
-}
-function toUTCEnd(dateStr){
-  return new Date(dateStr + 'T23:59:59.999Z');
-}
-
-function parseApiTimestamp(ts){
-  if (typeof ts === 'number') return new Date(ts * 1000);
-  if (/Z$/.test(ts)) return new Date(ts);
-  return new Date(ts + 'Z');
-}
-
-function formatPLUMEFromWeiStr(weiStr){
-  try {
-    const wei = BigInt(weiStr);
-    const whole = wei / 10n**18n;
-    const frac = (wei % 10n**18n).toString().padStart(18, '0').replace(/0+$/, '');
-    return frac ? `${whole}.${frac}` : `${whole}`;
-  } catch { return '0'; }
-}
-
-async function fetchPage(address, cursorParams, limit) {
-  let url = `${API_BASE}/addresses/${address}/transactions?limit=${limit}`;
-  if (cursorParams) {
-    const params = new URLSearchParams(cursorParams).toString();
-    url += '&' + params;
+  function isValidAddress(addr) { return /^0x[a-fA-F0-9]{40}$/.test(addr); }
+  function toUTCStart(dateStr){ return new Date(dateStr + 'T00:00:00.000Z'); }
+  function toUTCEnd(dateStr){ return new Date(dateStr + 'T23:59:59.999Z'); }
+  function parseApiTimestamp(ts){
+    if (typeof ts === 'number') return new Date(ts * 1000);
+    if (/Z$/.test(ts)) return new Date(ts);
+    return new Date(ts + 'Z');
   }
-  const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return await res.json();
-}
-
-function buildCsv(rows){
-  const header = ['time_utc','hash','to','method','fee_plume','fee_wei','exchange_rate_usd','fee_usd_est'];
-  const lines = [header.join(',')];
-  for (const r of rows){
-    const cells = [r.time, r.hash, r.to, r.method, r.fee_plume, r.fee_wei, r.exchange_rate ?? '', r.fee_usd_est ?? ''];
-    lines.push(cells.map(v => typeof v === 'string' && v.includes(',') ? '"'+v.replaceAll('"','""')+'"' : v).join(','));
-  }
-  return lines.join('\n');
-}
-
-runBtn.addEventListener('click', async () => {
-  const address = el('address').value.trim();
-  const startStr = el('start').value;
-  const endStr = el('end').value;
-  const limit = Math.max(10, Math.min(100, parseInt(el('limit').value || '50', 10)));
-
-  const status = el('status');
-  const rowsTbody = el('rows');
-  const summary = el('summary');
-  const tableCard = el('tableCard');
-
-  rowsTbody.innerHTML = '';
-  summary.style.display = 'none';
-  tableCard.style.display = 'none';
-  csvBtn.disabled = true;
-
-  if (!isValidAddress(address)) {
-    status.className = 'status err';
-    status.innerHTML = '✖ Enter a valid EVM address (0x + 40 hex chars).';
-    return;
-  }
-  if (!startStr || !endStr) {
-    status.className = 'status err';
-    status.innerHTML = '✖ Select both start and end dates.';
-    return;
+  function formatPLUMEFromWeiStr(weiStr){
+    try {
+      const wei = BigInt(weiStr);
+      const whole = wei / 10n**18n;
+      const frac = (wei % 10n**18n).toString().padStart(18, '0').replace(/0+$/, '');
+      return frac ? `${whole}.${frac}` : `${whole}`;
+    } catch { return '0'; }
   }
 
-  const start = toUTCStart(startStr);
-  const end = toUTCEnd(endStr);
-  if (end < start) {
-    status.className = 'status err';
-    status.innerHTML = '✖ End date must be on/after start date.';
-    return;
+  async function fetchPage(address, cursorParams, limit=50) {
+    let url = `${API_BASE}/addresses/${address}/transactions?limit=${limit}`;
+    if (cursorParams) {
+      const params = new URLSearchParams(cursorParams).toString();
+      url += '&' + params;
+    }
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
   }
 
-  status.className = 'status';
-  status.innerHTML = '⏳ Fetching transactions…';
+  function buildCsv(rows){
+    const header = ['time_utc','hash','to','method','fee_plume','fee_wei','exchange_rate_usd','fee_usd_est'];
+    const lines = [header.join(',')];
+    for (const r of rows){
+      const cells = [r.time,r.hash,r.to,r.method,r.fee_plume,r.fee_wei,r.exchange_rate ?? '',r.fee_usd_est ?? ''];
+      lines.push(cells.map(v => typeof v==='string'&&v.includes(',')?'"'+v.replaceAll('"','""')+'"':v).join(','));
+    }
+    return lines.join('\n');
+  }
 
-let cursorParams = null;
-let collected = [];
-let seenInRange = false;
+  runBtn.addEventListener('click', async () => {
+    const address = el('address').value.trim();
+    const startStr = el('start').value;
+    const endStr = el('end').value;
+    const limit = Math.max(10, Math.min(100, parseInt(el('limit').value||'50',10)));
+    const status = el('status');
+    const rowsTbody = el('rows');
+    const summary = el('summary');
+    const tableCard = el('tableCard');
+    rowsTbody.innerHTML = '';
+    summary.style.display = 'none';
+    tableCard.style.display = 'none';
+    csvBtn.disabled = true;
 
-try {
-  while (true) {
-    status.innerHTML = `⏳ Fetching page ${collected.length / limit + 1}…`;
-    const data = await fetchPage(address, cursorParams);
-    const items = data.items || [];
-    if (!items.length) break; // no more transactions
-
-    // Collect valid timestamps for this page
-    const times = items
-      .map(tx => parseApiTimestamp(tx.timestamp))
-      .filter(d => !isNaN(d.getTime()));
-
-    if (!times.length) break; // page empty or malformed
-
-    const pageMin = new Date(Math.min(...times.map(d => d.getTime())));
-    const pageMax = new Date(Math.max(...times.map(d => d.getTime())));
-    const isDesc = times[0] > times[times.length - 1];
-
-    // Stop fetching if all transactions are outside date range
-    if (isDesc && pageMax < start) break;   // descending, everything older than start
-    if (!isDesc && pageMin > end) break;    // ascending, everything newer than end
-
-    // Per-tx filtering
-    for (const tx of items) {
-      const ts = parseApiTimestamp(tx.timestamp);
-      if (isNaN(ts.getTime())) continue;
-      if (ts >= start && ts <= end) {
-        seenInRange = true;
-        const feeWeiStr = tx.fee && tx.fee.value
-          ? tx.fee.value
-          : ((tx.gas_used && tx.gas_price)
-              ? (BigInt(tx.gas_used) * BigInt(tx.gas_price)).toString()
-              : '0');
-        const feePlume = formatPLUMEFromWeiStr(feeWeiStr);
-        const exr = tx.exchange_rate ? Number(tx.exchange_rate) : null;
-        const feeUsd = exr
-          ? (Number((BigInt(feeWeiStr) / 10n**12n)) / 1e6) * exr
-          : null;
-
-        collected.push({
-          time: ts.toISOString().replace('.000Z','Z'),
-          hash: tx.hash,
-          to: tx.to && tx.to.hash ? tx.to.hash : '',
-          method: tx.method || '',
-          fee_wei: feeWeiStr,
-          fee_plume: feePlume,
-          exchange_rate: exr,
-          fee_usd_est: feeUsd ? feeUsd.toFixed(6) : undefined,
-        });
-      }
+    if (!isValidAddress(address)) {
+      status.className = 'status err';
+      status.innerHTML = '✖ Enter a valid EVM address (0x + 40 hex chars).';
+      return;
+    }
+    if (!startStr || !endStr) {
+      status.className = 'status err';
+      status.innerHTML = '✖ Select both start and end dates.';
+      return;
     }
 
-    // Move to next page using API cursor
-    cursorParams = data.next_page_params || null;
-    if (!cursorParams) break; // no more pages
-  }
-} catch (err) {
-  console.error(err);
-  status.className = 'status err';
-  status.innerHTML = `✖ Error: ${err.message}. If this is a CORS issue, place this behind a Cloudflare Worker proxy.`;
-}
+    const start = toUTCStart(startStr);
+    const end = toUTCEnd(endStr);
+    if (end < start) {
+      status.className = 'status err';
+      status.innerHTML = '✖ End date must be on/after start date.';
+      return;
+    }
 
-})();
+    status.className = 'status';
+    status.innerHTML = '⏳ Fetching transactions…';
 
-// Convenience: prefill address & dates from URL
-(function initFromQuery(){
-  const q = new URLSearchParams(location.search);
-  const addr = q.get('address');
-  const start = q.get('start');
-  const end = q.get('end');
-  if (addr) el('address').value = addr;
-  if (start) el('start').value = start;
-  if (end) el('end').value = end;
-})();
+    let cursorParams = null;
+    let collected = [];
+    let seenInRange = false;
+
+    try {
+      while (true) {
+        status.innerHTML = `⏳ Fetching page ${Math.floor(collected.length/limit)+1}…`;
+        const data = await fetchPage(address, cursorParams, limit);
+        const items = data.items || [];
+        if (!items.length) break;
+
+        const times = items.map(tx => parseApiTimestamp(tx.timestamp)).filter(d=>!isNaN(d.getTime()));
+        if (!times.length) break;
+
+        const pageMin = new Date(Math.min(...times.map(d=>d.getTime())));
+        const pageMax = new Date(Math.max(...times.map(d=>d.getTime())));
+        const isDesc = times[0] > times[times.length-1];
+        if (isDesc && pageMax < start) break;
+        if (!isDesc && pageMin > end) break;
+
+        for (const tx of items) {
+          const ts = parseApiTimestamp(tx.timestamp);
+          if (isNaN(ts.getTime())) continue;
+          if (ts>=start && ts<=end) {
+            seenInRange = true;
+            const feeWeiStr = tx.fee?.value ?? ((tx.gas_used&&tx.gas_price)?(BigInt(tx.gas_used)*BigInt(tx.gas_price)).toString():'0');
+            const feePlume = formatPLUMEFromWeiStr(feeWeiStr);
+            const exr = tx.exchange_rate ? Number(tx.exchange_rate) : null;
+            const feeUsd = exr ? (Number((BigInt(feeWeiStr)/10n**12n))/1e6)*exr : null;
+            collected.push({
+              time: ts.toISOString().replace('.000Z','Z'),
+              hash: tx.hash,
+              to: tx.to?.hash ?? '',
+              method: tx.method||'',
+              fee_wei: feeWeiStr,
+              fee_plume: feePlume,
+              exchange_rate: exr,
+              fee_usd_est: feeUsd ? feeUsd.toFixed(6) : undefined
+            });
+          }
+        }
+
+        cursorParams = data.next_page_params ?? null;
+        if (!cursorParams) break;
+      }
+    } catch(err){
+      console.error(err);
+      status.className = 'status err';
+      status.innerHTML = `✖ Error: ${err.message}. If this is a CORS issue, place this behind a Cloudflare Worker proxy.`;
+    }
+  });
+
+  // prefill address & dates from URL
+  (function initFromQuery(){
+    const q = new URLSearchParams(location.search);
+    const addr = q.get('address');
+    const start = q.get('start');
+    const end = q.get('end');
+    if (addr) el('address').value = addr;
+    if (start) el('start').value = start;
+    if (end) el('end').value = end;
+  })();
+
+});
 </script>
 
 
