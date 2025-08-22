@@ -290,38 +290,74 @@
 
       try {
         while (page <= maxPages) {
-          status.innerHTML = `⏳ Fetching page ${page}/${maxPages}…`;
-          const items = await fetchPage(address, page, limit);
-          if (!items.length) break;
+  status.innerHTML = `⏳ Fetching page ${page}/${maxPages}…`;
+  const items = await fetchPage(address, page, limit);
+  if (!items.length) break;
 
-          // Filter this page
-          for (const tx of items) {
-            const ts = parseApiTimestamp(tx.timestamp);
-            if (isNaN(ts.getTime())) continue;
-            if (ts >= start && ts <= end) {
-              seenInRange = true;
-              const feeWeiStr = tx.fee && tx.fee.value ? tx.fee.value : ( (tx.gas_used && tx.gas_price) ? (BigInt(tx.gas_used) * BigInt(tx.gas_price)).toString() : '0' );
-              const feePlume = formatPLUMEFromWeiStr(feeWeiStr);
-              const exr = tx.exchange_rate ? Number(tx.exchange_rate) : null;
-              const feeUsd = exr ? (Number((BigInt(feeWeiStr) / 10n**12n)) / 1e6) * exr : null; // scale carefully to avoid precision loss
-              collected.push({
-                time: ts.toISOString().replace('.000Z','Z'),
-                hash: tx.hash,
-                to: tx.to && tx.to.hash ? tx.to.hash : '',
-                method: tx.method || '',
-                fee_wei: feeWeiStr,
-                fee_plume: feePlume,
-                exchange_rate: exr,
-                fee_usd_est: feeUsd ? feeUsd.toFixed(6) : undefined,
-              });
-            }
-          }
+  // Collect valid timestamps for this page
+  const times = items
+    .map(tx => parseApiTimestamp(tx.timestamp))
+    .filter(d => !isNaN(d.getTime()));
 
-          // Early stop if transactions are older than start
-        const oldest = parseApiTimestamp(items[items.length - 1]?.timestamp);
-        if (!isNaN(oldest?.getTime()) && oldest < start) break;
+  if (!times.length) { page++; continue; }
 
-          page++;
+  const first = times[0];
+  const last  = times[times.length - 1];
+  const pageMin = new Date(Math.min(...times.map(d => d.getTime())));
+  const pageMax = new Date(Math.max(...times.map(d => d.getTime())));
+  const isDesc = first > last; // true when newest→oldest
+
+  // Page-wide pruning before per-tx filtering
+  if (isDesc) {
+    // Entire page newer than end → skip to next (older) page
+    if (pageMin > end) { page++; continue; }
+    // Entire page older than start → we're done (later pages will be even older)
+    if (pageMax < start) break;
+  } else {
+    // Ascending (oldest→newest)
+    // Entire page older than start → skip to next (newer) page
+    if (pageMax < start) { page++; continue; }
+    // Entire page newer than end → we're done (later pages will be even newer)
+    if (pageMin > end) break;
+  }
+
+  // Per-tx filtering within the overlapping page
+  for (const tx of items) {
+    const ts = parseApiTimestamp(tx.timestamp);
+    if (isNaN(ts.getTime())) continue;
+    if (ts >= start && ts <= end) {
+      seenInRange = true;
+      const feeWeiStr = tx.fee && tx.fee.value
+        ? tx.fee.value
+        : ((tx.gas_used && tx.gas_price)
+            ? (BigInt(tx.gas_used) * BigInt(tx.gas_price)).toString()
+            : '0');
+      const feePlume = formatPLUMEFromWeiStr(feeWeiStr);
+      const exr = tx.exchange_rate ? Number(tx.exchange_rate) : null;
+      const feeUsd = exr
+        ? (Number((BigInt(feeWeiStr) / 10n**12n)) / 1e6) * exr
+        : null;
+
+      collected.push({
+        time: ts.toISOString().replace('.000Z','Z'),
+        hash: tx.hash,
+        to: tx.to && tx.to.hash ? tx.to.hash : '',
+        method: tx.method || '',
+        fee_wei: feeWeiStr,
+        fee_plume: feePlume,
+        exchange_rate: exr,
+        fee_usd_est: feeUsd ? feeUsd.toFixed(6) : undefined,
+      });
+    }
+  }
+
+  // Extra early-stop once we've captured some in-range txs
+  if (isDesc && seenInRange && pageMin < start) break; // next desc page will be even older
+  if (!isDesc && seenInRange && pageMax > end) break;   // next asc page will be even newer
+
+  page++;
+}
+
         }
 
         if (!collected.length) {
