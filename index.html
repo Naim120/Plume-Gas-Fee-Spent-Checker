@@ -315,11 +315,15 @@ runBtn.addEventListener('click', async () => {
         }
       }
 
-      // Early stop if all remaining transactions are outside date range
-      if (!seenInRange && items.length) {
-        const oldestTs = parseApiTimestamp(items[items.length - 1].timestamp);
-        if (oldestTs < start) break;
+      // Early stop if the oldest tx in this batch is before the start date
+    if (items.length) {
+      const oldestTs = parseApiTimestamp(items[items.length - 1].timestamp);
+      if (oldestTs < start) {
+        // we’ve gone past the requested date range, no need to fetch more
+        break;
       }
+    }
+
 
       cursor = data.next_page_params || null;
     } while (cursor);
